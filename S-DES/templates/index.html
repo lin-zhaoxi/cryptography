@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>S-DES 在线工具</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>S-DES 在线工具</h1>
+    </header>
+
+    <div class="cards-container">
+      <section class="card crypto-card">
+        <div class="card-header">
+          <i class="fas fa-lock card-icon"></i>
+          <h2>加解密</h2>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-cog"></i>
+            处理模式
+          </label>
+          <div class="mode-selector">
+            <label class="radio-option">
+              <input type="radio" name="mode" value="binary" checked>
+              <span class="radio-custom"></span>
+              <span class="radio-text">二进制模式</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="mode" value="ascii">
+              <span class="radio-custom"></span>
+              <span class="radio-text">ASCII模式</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-key"></i>
+            密钥 (10位二进制)
+          </label>
+          <input id="key" class="form-input" placeholder="例如: 1010000010" />
+          <div class="example-text">示例: 1100110011</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-edit"></i>
+            输入内容
+          </label>
+          <textarea id="text" class="form-textarea" rows="3" placeholder="二进制模式: 8位倍数; ASCII模式: 任意文本"></textarea>
+        </div>
+
+        <div class="button-group">
+          <button id="btn-encrypt" class="btn btn-primary">
+            <i class="fas fa-lock"></i>
+            加密
+          </button>
+          <button id="btn-decrypt" class="btn btn-secondary">
+            <i class="fas fa-unlock"></i>
+            解密
+          </button>
+          <button id="btn-clear" class="btn btn-outline">
+            <i class="fas fa-trash"></i>
+            清空
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-file-alt"></i>
+            输出结果
+          </label>
+          <textarea id="output" class="form-textarea output-area" rows="4" readonly></textarea>
+        </div>
+      </section>
+
+      <section class="card brute-card">
+        <div class="card-header">
+          <i class="fas fa-hammer card-icon"></i>
+          <h2>暴力破解</h2>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-list"></i>
+            明密文对 (每行: PT CT)
+          </label>
+          <textarea id="pairs" class="form-textarea" rows="4" placeholder="10101010 00110011"></textarea>
+          <div class="example-text">示例: 10101010 00110011</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-microchip"></i>
+            线程数
+          </label>
+          <input id="threads" class="form-input" type="number" min="1" max="32" value="4" />
+          <div class="help-text">建议使用4-8个线程以获得最佳性能</div>
+        </div>
+
+        <div class="button-group">
+          <button id="btn-brute" class="btn btn-danger">
+            <i class="fas fa-play"></i>
+            开始破解
+          </button>
+          <button id="btn-clear-brute" class="btn btn-outline">
+            <i class="fas fa-trash"></i>
+            清空
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-chart-line"></i>
+            破解结果
+          </label>
+          <textarea id="brute-result" class="form-textarea output-area" rows="4" readonly></textarea>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    async function callApi(path, payload) {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    }
+
+    function getSelectedMode() {
+      const selected = document.querySelector('input[name="mode"]:checked');
+      return selected ? selected.value : 'binary';
+    }
+
+    function setButtonLoading(button, loading) {
+      const icon = button.querySelector('i');
+      const text = button.querySelector('span') || button.childNodes[button.childNodes.length - 1];
+      
+      if (loading) {
+        button.disabled = true;
+        icon.className = 'fas fa-spinner fa-spin';
+        if (text && text.textContent) {
+          text.textContent = '处理中...';
+        }
+      } else {
+        button.disabled = false;
+        if (button.id === 'btn-encrypt') {
+          icon.className = 'fas fa-lock';
+          if (text && text.textContent) text.textContent = '加密';
+        } else if (button.id === 'btn-decrypt') {
+          icon.className = 'fas fa-unlock';
+          if (text && text.textContent) text.textContent = '解密';
+        } else if (button.id === 'btn-brute') {
+          icon.className = 'fas fa-play';
+          if (text && text.textContent) text.textContent = '开始破解';
+        }
+      }
+    }
+
+    document.getElementById('btn-encrypt').onclick = async () => {
+      const mode = getSelectedMode();
+      const key = document.getElementById('key').value.trim();
+      const text = document.getElementById('text').value;
+      const out = document.getElementById('output');
+      const btn = document.getElementById('btn-encrypt');
+      
+      setButtonLoading(btn, true);
+      out.value = '处理中...';
+      
+      try {
+        const data = await callApi('/api/encrypt', { mode, key, text });
+        out.value = data.error ? `错误: ${data.error}` : data.result;
+      } catch (error) {
+        out.value = `网络错误: ${error.message}`;
+      } finally {
+        setButtonLoading(btn, false);
+      }
+    };
+
+    document.getElementById('btn-decrypt').onclick = async () => {
+      const mode = getSelectedMode();
+      const key = document.getElementById('key').value.trim();
+      const text = document.getElementById('text').value;
+      const out = document.getElementById('output');
+      const btn = document.getElementById('btn-decrypt');
+      
+      setButtonLoading(btn, true);
+      out.value = '处理中...';
+      
+      try {
+        const data = await callApi('/api/decrypt', { mode, key, text });
+        out.value = data.error ? `错误: ${data.error}` : data.result;
+      } catch (error) {
+        out.value = `网络错误: ${error.message}`;
+      } finally {
+        setButtonLoading(btn, false);
+      }
+    };
+
+    document.getElementById('btn-brute').onclick = async () => {
+      const pairs = document.getElementById('pairs').value;
+      const threads = parseInt(document.getElementById('threads').value || '4', 10);
+      const out = document.getElementById('brute-result');
+      const btn = document.getElementById('btn-brute');
+      
+      setButtonLoading(btn, true);
+      out.value = '正在破解...';
+      
+      try {
+        const data = await callApi('/api/brute', { pairs, threads });
+        if (data.error) {
+          out.value = `错误: ${data.error}`;
+          return;
+        }
+        const lines = [];
+        lines.push(`耗时: ${data.elapsed.toFixed(4)} 秒`);
+        lines.push(`匹配密钥数: ${data.count}`);
+        if ((data.keys || []).length) {
+          lines.push('匹配的密钥:');
+          for (const k of data.keys) lines.push(`- ${k}`);
+          lines.push('\n验证:');
+          for (const v of data.verify || []) lines.push(`${v.key} -> ${v.ok ? '成功' : '失败'}`);
+        }
+        out.value = lines.join('\n');
+      } catch (error) {
+        out.value = `网络错误: ${error.message}`;
+      } finally {
+        setButtonLoading(btn, false);
+      }
+    };
+
+    // 清空功能
+    document.getElementById('btn-clear').onclick = () => {
+      document.getElementById('key').value = '';
+      document.getElementById('text').value = '';
+      document.getElementById('output').value = '';
+    };
+
+    document.getElementById('btn-clear-brute').onclick = () => {
+      document.getElementById('pairs').value = '';
+      document.getElementById('brute-result').value = '';
+    };
+
+    // 模式切换效果
+    document.querySelectorAll('input[name="mode"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        document.querySelectorAll('.radio-option').forEach(option => {
+          option.classList.remove('selected');
+        });
+        this.closest('.radio-option').classList.add('selected');
+      });
+    });
+
+    // 初始化选中状态
+    document.querySelector('input[name="mode"]:checked').closest('.radio-option').classList.add('selected');
+  </script>
+</body>
+</html> 
